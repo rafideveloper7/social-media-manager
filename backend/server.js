@@ -13,6 +13,7 @@ const app = express();
 
 app.use(cors({origin: "*"}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
 
 // Initialize MongoDB Connection
 connectDB();
