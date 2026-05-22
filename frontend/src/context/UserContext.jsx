@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../lib/api';
 
 export const UserContext = createContext();
 
@@ -13,7 +13,7 @@ export const UserProvider = ({ children }) => {
     setLoadingAccounts(true);
     try {
       // Points to your backend endpoint that reads connected platforms from MongoDB
-      const res = await axios.get(`/api/socials/accounts/${userId}`);
+      const res = await apiClient.get(`/api/socials/accounts/${userId}`);
       setLinkedAccounts(res.data || []);
     } catch (err) {
       console.error("Error loading synchronized social channels:", err.message);

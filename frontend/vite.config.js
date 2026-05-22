@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       // Catch any route starting with /api and route it to your backend
       '/api': {
-        target: 'http://localhost:5002',
+        target: 'http://localhost:5000',
         changeOrigin: true,
         secure: false,
         ws: true, // handles websockets if needed later

@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import axios from 'axios';
+import apiClient from '../lib/api';
 import { UserContext } from '../context/UserContext';
 
 const AVAILABLE_PLATFORMS = [
@@ -26,7 +26,7 @@ export default function Dashboard() {
   const handleConnectPlatform = async (platform) => {
     try {
       // Calls your dynamic backend factory URL generation routes
-      const response = await axios.get(`/api/socials/auth/${platform}?userId=${userId}`);
+      const response = await apiClient.get(`/api/socials/auth/${platform}?userId=${userId}`);
       if (response.data?.url) {
         window.location.href = response.data.url; // Forward window window to real auth flow screen
       }
@@ -66,7 +66,7 @@ export default function Dashboard() {
     }
 
     try {
-      const response = await axios.post('/api/posts', formData, {
+      const response = await apiClient.post('/api/posts', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       

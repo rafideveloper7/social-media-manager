@@ -5,7 +5,7 @@ import './index.css';
 import axios from 'axios';
 
 // Direct connection to your server.js fallback port
-axios.defaults.baseURL = 'http://localhost:5002';
+axios.defaults.baseURL = 'https://smmb.vercel.app/api/socials/callback/handle';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
