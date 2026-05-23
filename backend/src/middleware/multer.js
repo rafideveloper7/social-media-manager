@@ -14,6 +14,6 @@ const storage = multer.diskStorage({
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024 // 🛠️ FIX 2: Set explicit 100MB Multipart Chunk Size Limit
+    fileSize: 50 * 1024 * 1024 // 🛠️ FIX: Set explicit 50MB Multipart Chunk Size Limit to match Vercel limits
   }
 });
