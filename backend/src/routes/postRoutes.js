@@ -1,11 +1,9 @@
-import express from 'express';
-// Change handleCreatePost to createPost here:
-import { createPost } from "../controllers/postController.js"; 
-import upload from "../middleware/multer.js"; // or wherever your multer setup is
+// Inside backend/src/routes/postRoutes.js
+import { Router } from 'express';
+import { createPost } from '../controllers/postController.js';
+import { upload } from '../middleware/multer.js';
 
-const router = express.Router();
-
-// Make sure your post route points to createPost
-router.post("/", upload.single("media"), createPost);
+const router = Router();
+router.post('/', upload.single('file'), createPost);
 
 export default router;
