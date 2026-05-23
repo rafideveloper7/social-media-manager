@@ -3,7 +3,6 @@ import cloudinary from 'cloudinary';
 import SocialAccount from '../models/SocialAccount.js';
 import Post from '../models/Post.js';
 
-// DYNAMIC MULTI-KEY PUBLISHING DISPATCH ENGINE
 export const createPost = async (req, res) => {
   try {
     const { userId, title, description, scheduledFor } = req.body;
@@ -49,30 +48,22 @@ export const createPost = async (req, res) => {
       mediaType = mediaUrl.endsWith('.mp4') ? 'video' : 'image';
     }
 
-    // If it's a scheduled post, save to DB and stop here (Cron job handles it later)
+    // If it's a scheduled post, save to DB and stop here
     if (scheduledFor) {
       const scheduledPost = await Post.create({
-        userId,
-        title,
-        description,
-        tags,
-        mediaUrl,
-        cloudinaryPublicId,
-        mediaType,
-        targetAccounts: [], 
-        scheduledFor,
-        status: 'scheduled'
+        userId, title, description, tags, mediaUrl, cloudinaryPublicId, mediaType,
+        targetAccounts: [], scheduledFor, status: 'scheduled'
       });
       return res.status(200).json({ message: 'Post successfully scheduled in pipeline queue!', post: scheduledPost });
     }
 
-    // 4. INSTANT MULTI-KEY BLASTER ENGINE LOOP
+    // 4. INSTANT MULTI-KEY BLASTER ENGINE LOOP (Using Axios)
     const executionResults = [];
 
     for (const platform of platforms) {
       let currentApiKey = '';
 
-      // 🌟 Route platforms dynamically to their matching free Zernio account keys
+      // Route platforms dynamically to their matching free Zernio account keys
       if (platform === 'twitter' || platform === 'youtube') {
         currentApiKey = process.env.ZERNIO_API_KEY_GMAIL1;
       } else if (platform === 'linkedin' || platform === 'facebook') {
@@ -87,32 +78,31 @@ export const createPost = async (req, res) => {
       }
 
       try {
-        const response = await fetch("https://zernio.com/api/v1/posts", {
-          method: "POST",
+        // 🌟 Using stable Axios instance for external posting dispatch
+        const response = await axios.post("https://zernio.com/api/v1/posts", {
+          text: `${title}\n\n${description}\n\n${tags.map(t => `#${t}`).join(' ')}`,
+          platforms: [platform],
+          media: mediaUrl ? [mediaUrl] : []
+        }, {
           headers: {
             "Authorization": `Bearer ${currentApiKey}`,
             "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            text: `${title}\n\n${description}\n\n${tags.map(t => `#${t}`).join(' ')}`,
-            platforms: [platform],
-            media: mediaUrl ? [mediaUrl] : []
-          })
+          }
         });
 
-        const result = await response.json();
-
-        if (response.ok) {
+        if (response.status === 200 || response.status === 201) {
           executionResults.push({ platform, status: 'success' });
         } else {
-          executionResults.push({ platform, status: 'failed', error: result.message || 'Zernio transmission rejected.' });
+          executionResults.push({ platform, status: 'failed', error: 'Transmission rejected.' });
         }
       } catch (err) {
-        executionResults.push({ platform, status: 'failed', error: err.message });
+        // Grab accurate error text directly from Axios response object
+        const errMsg = err.response?.data?.message || err.message;
+        executionResults.push({ platform, status: 'failed', error: errMsg });
       }
     }
 
-    // 5. Save transaction records into your MongoDB (matching allowed enum strings)
+    // 5. Save transaction records into your MongoDB
     const finalStatus = executionResults.some(r => r.status === 'success') ? 'published' : 'failed';
     const savedPost = await Post.create({
       userId,
