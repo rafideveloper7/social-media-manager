@@ -3,14 +3,10 @@ import cloudinary from 'cloudinary';
 import Post from '../models/Post.js';
 
 export const createPost = async (req, res) => {
-  // We keep tracking this locally to clean up files if things fail midway
-  let cloudinaryPublicId = ''; 
-  let mediaUrl = '';
-  let mediaType = 'none';
-
   try {
     const { userId, title, description, scheduledFor } = req.body;
-    let { platforms, tags } = req.body;
+    let { platforms, tags, mediaUrl } = req.body;
+    let mediaType = 'none';
 
     // 1. Unify and parse incoming platform options safely
     if (typeof platforms === 'string') {
@@ -36,32 +32,28 @@ export const createPost = async (req, res) => {
       tags = [];
     }
 
-    // 2. STEP 1: UPLOAD TO CLOUDINARY FIRST
-    if (req.file) {
-      console.log("Streaming media file directly to Cloudinary pipeline...");
-      const uploadResult = await cloudinary.v2.uploader.upload(req.file.path, {
-        resource_type: 'auto', // Auto-detects if it's an image or video
-      });
-      
-      mediaUrl = uploadResult.secure_url;
-      cloudinaryPublicId = uploadResult.public_id; // Saved to use for cleanup deletion later
-      mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-      console.log("Cloudinary Upload Complete! URL:", mediaUrl);
-    } else if (req.body.mediaUrl) {
-      mediaUrl = req.body.mediaUrl;
+    // Determine media type from URL extension
+    if (mediaUrl) {
       mediaType = mediaUrl.endsWith('.mp4') ? 'video' : 'image';
     }
 
     // Handle pipeline staging for scheduled queues
     if (scheduledFor) {
       const scheduledPost = await Post.create({
-        userId, title, description, tags, mediaUrl, cloudinaryPublicId, mediaType,
-        targetAccounts: [], scheduledFor, status: 'scheduled'
+        userId, title, description, tags, mediaUrl, 
+        cloudinaryPublicId: '', // Not needed since frontend uploaded directly
+        mediaType,
+        targetAccounts: [], 
+        scheduledFor, 
+        status: 'scheduled'
       });
-      return res.status(200).json({ message: 'Post successfully scheduled in pipeline queue!', post: scheduledPost });
+      return res.status(200).json({ 
+        message: 'Post successfully scheduled in pipeline queue!', 
+        post: scheduledPost 
+      });
     }
 
-    // 3. STEP 2: TRANSMIT TO MULTI-KEY ZERNIO NETWORKS
+    // 2. TRANSMIT TO MULTI-KEY ZERNIO NETWORKS
     // Create array of promises for parallel execution
     const transmissionPromises = platforms.map(async (platform) => {
       let currentApiKey = '';
@@ -82,7 +74,7 @@ export const createPost = async (req, res) => {
         const response = await axios.post("https://zernio.com/api/v1/posts", {
           text: `${title}\n\n${description}\n\n${tags.map(t => `#${t}`).join(' ')}`,
           platforms: [platform],
-          media: mediaUrl ? [mediaUrl] : [] // Zernio downloads the file from your Cloudinary URL
+          media: mediaUrl ? [mediaUrl] : []
         }, {
           headers: {
             "Authorization": `Bearer ${currentApiKey}`,
@@ -104,44 +96,28 @@ export const createPost = async (req, res) => {
     // Wait for all transmissions to complete
     const executionResults = await Promise.all(transmissionPromises);
 
-    // 4. STEP 3: AUTOMATIC CLOUDINARY CLEANUP
-    // Once Zernio ingests the media asset, we can safely delete it to preserve space
-    if (cloudinaryPublicId) {
-      console.log(`Cleaning up Cloudinary asset storage for ID: ${cloudinaryPublicId}...`);
-      await cloudinary.v2.uploader.destroy(cloudinaryPublicId, {
-        resource_type: mediaType === 'video' ? 'video' : 'image'
-      });
-      console.log("Cloudinary storage footprint successfully cleared!");
-    }
-
-    // 5. Save operation log details locally into MongoDB
+    // 3. Save operation log details locally into MongoDB
     const finalStatus = executionResults.some(r => r.status === 'success') ? 'published' : 'failed';
     const savedPost = await Post.create({
       userId,
       title,
       description,
       tags,
-      mediaUrl: finalStatus === 'published' ? mediaUrl : '', // Keep track of url if successful
-      cloudinaryPublicId: '', // Set to empty since we destroyed it
+      mediaUrl: finalStatus === 'published' ? mediaUrl : '',
+      cloudinaryPublicId: '', // Not storing since frontend handles upload
       mediaType,
       targetAccounts: [],
       status: finalStatus
     });
 
     return res.status(200).json({
-      message: 'Publishing engine processing finished and storage cleared.',
+      message: 'Publishing engine processing finished.',
       results: executionResults,
       post: savedPost
     });
 
   } catch (error) {
     console.error("Multi-Key Engine Crash:", error);
-    
-    // Safety Catch: If code breaks after uploading to Cloudinary but before finishing, clean it up anyway
-    if (cloudinaryPublicId) {
-      await cloudinary.v2.uploader.destroy(cloudinaryPublicId, { resource_type: mediaType === 'video' ? 'video' : 'image' });
-    }
-    
     return res.status(500).json({ message: error.message });
   }
 };

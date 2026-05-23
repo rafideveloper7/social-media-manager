@@ -11,6 +11,8 @@ const ConnectionsDashboard = ({ userId }) => {
   const [previewUrl, setPreviewUrl] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uploadingToCloudinary, setUploadingToCloudinary] = useState(false);
+  const [cloudinaryProgress, setCloudinaryProgress] = useState(0);
 
   // 🌟 Clean Native Inline SVG Map for 100% stable brand icons
   const availableSocials = [
@@ -51,7 +53,7 @@ const ConnectionsDashboard = ({ userId }) => {
           viewBox="0 0 24 24"
           fill="currentColor"
         >
-          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0z" />
+          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0z" />
         </svg>
       ),
       keyGroup: "Gmail Account 2",
@@ -122,32 +124,60 @@ const ConnectionsDashboard = ({ userId }) => {
     }
 
     setLoading(true);
+    let finalMediaUrl = "";
 
     try {
-      const formData = new FormData();
-      formData.append("userId", userId || "65f1a9b2c3d4e5f6a7b8c9d0");
-      formData.append("title", title);
-      formData.append("description", description);
-      formData.append("tags", tags);
-      formData.append("platforms", JSON.stringify(selectedPlatforms));
-
+      // STEP 1: Direct Browser-to-Cloudinary Upload (Bypasses Vercel 4.5MB limit)
       if (mediaFile) {
-        formData.append("file", mediaFile);
+        setUploadingToCloudinary(true);
+        setCloudinaryProgress(0);
+        
+        const cloudinaryFormData = new FormData();
+        cloudinaryFormData.append("file", mediaFile);
+        // IMPORTANT: REPLACE WITH YOUR ACTUAL UNSIGNED PRESET NAME FROM CLOUDINARY
+        cloudinaryFormData.append("upload_preset", "your_unsigned_preset_name_here"); 
+
+        // Optional: Add progress tracking for large files
+        const cloudResponse = await axios.post(
+          "https://api.cloudinary.com/v1_1/dmqdtzayv/auto/upload",
+          cloudinaryFormData,
+          {
+            onUploadProgress: (progressEvent) => {
+              const percentCompleted = Math.round(
+                (progressEvent.loaded * 100) / progressEvent.total
+              );
+              setCloudinaryProgress(percentCompleted);
+            }
+          }
+        );
+        
+        finalMediaUrl = cloudResponse.data.secure_url;
+        setUploadingToCloudinary(false);
+        setCloudinaryProgress(0);
       }
+
+      // STEP 2: Send clean JSON payload to your backend
+      const postPayload = {
+        userId: userId || "65f1a9b2c3d4e5f6a7b8c9d0",
+        title,
+        description,
+        tags,
+        platforms: selectedPlatforms,
+        mediaUrl: finalMediaUrl // Sending the light URL string instead of the heavy file binary
+      };
 
       const response = await axios.post(
         "https://smmb.vercel.app/api/posts",
-        formData,
+        postPayload,
         {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        },
+          headers: { 'Content-Type': 'application/json' },
+        }
       );
 
       console.log("Engine Dispatch Result:", response.data);
       alert("Content distributed successfully to Zernio endpoints!");
 
+      // Reset form
       setTitle("");
       setDescription("");
       setTags("");
@@ -156,8 +186,10 @@ const ConnectionsDashboard = ({ userId }) => {
       setSelectedPlatforms([]);
     } catch (error) {
       console.error("Core Handshake Crash:", error);
+      setUploadingToCloudinary(false);
+      setCloudinaryProgress(0);
       alert(
-        `Pipeline rejection: ${error.response?.data?.message || error.message}`,
+        `Pipeline rejection: ${error.response?.data?.message || error.message}`
       );
     } finally {
       setLoading(false);
@@ -299,7 +331,7 @@ const ConnectionsDashboard = ({ userId }) => {
                   onChange={handleFileChange}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                 />
-                {!previewUrl ? (
+                {!previewUrl && !uploadingToCloudinary ? (
                   <div className="space-y-1">
                     <CloudUpload className="w-8 h-8 mx-auto text-slate-400" />
                     <p className="text-xs text-slate-500 font-medium">
@@ -307,6 +339,21 @@ const ConnectionsDashboard = ({ userId }) => {
                     </p>
                     <p className="text-[10px] text-slate-400">
                       Cloudinary handles secure caching auto-processing
+                    </p>
+                  </div>
+                ) : uploadingToCloudinary ? (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-slate-600">
+                      Uploading to Cloudinary...
+                    </p>
+                    <div className="w-full bg-slate-200 rounded-full h-2.5">
+                      <div
+                        className={`bg-indigo-600 h-2.5 rounded-full transition-all duration-500`}
+                        style={{ width: `${cloudinaryProgress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-indigo-600 font-medium">
+                      {cloudinaryProgress}%
                     </p>
                   </div>
                 ) : (
@@ -335,35 +382,62 @@ const ConnectionsDashboard = ({ userId }) => {
             {/* Action Trigger Button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || uploadingToCloudinary}
               className={`w-full py-4 rounded-xl font-bold text-sm text-white transition-all shadow-sm ${
-                loading
+                loading || uploadingToCloudinary
                   ? "bg-slate-400 cursor-not-allowed animate-pulse"
                   : "bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99]"
               }`}
             >
-              {loading ? (
+              {loading || uploadingToCloudinary ? (
                 <div className="flex items-center justify-center gap-2">
-                  <svg
-                    className="animate-spin h-5 w-5 text-white"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
-                  <span>Processing Media Pipeline...</span>
+                  {uploadingToCloudinary ? (
+                    <>
+                      <svg
+                        className="animate-spin h-5 w-5 text-white"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      <span>Uploading to Cloudinary...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="animate-spin h-5 w-5 text-white"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      <span>Processing Media Pipeline...</span>
+                    </>
+                  )}
                 </div>
               ) : (
                 "Publish Media Update Everywhere Now"
